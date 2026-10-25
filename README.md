@@ -49,7 +49,10 @@ También puedes iniciar el programa haciendo doble clic en `descargador.py`
 si `.py` está asociado con Python.
 
 Como alternativa, haz doble clic en `iniciar_descargador.bat`. Este archivo
-inicia el programa sin abrir una ventana de CMD.
+inicia el programa directamente sin tener que abrir PowerShell.
+
+Si tienes Python instalado y quieres iniciar la aplicación sin que aparezca
+una ventana de CMD, haz doble clic en `iniciar_descargador.vbs`.
 
 ## Crear el ejecutable de Windows
 
@@ -63,12 +66,8 @@ Set-ExecutionPolicy -Scope Process Bypass
 .\build_windows.ps1
 ```
 
-El resultado será `dist\Descargador.exe`. Es un ejecutable de un solo archivo:
-se puede abrir con doble clic, no muestra una ventana de CMD y contiene
-FFmpeg. Puedes distribuir solamente ese `.exe`.
-
-> El ejecutable solo puede compilarse si `ffmpeg.exe` y `ffprobe.exe` están
-> presentes en `ffmpeg\bin` antes de ejecutar el script.
+El resultado será `dist\Descargador.exe`, un único archivo que incluye la
+aplicación y FFmpeg. Puedes distribuir ese archivo directamente.
 
 ## Uso
 
@@ -92,6 +91,9 @@ Al elegir MP4, el programa pregunta cómo quieres seleccionar la calidad:
 También puedes usar **Limpiar enlaces** para quitar todos los campos y empezar
 de nuevo.
 
+La aplicación muestra la firma **by kenner manuel varilla fuentes** en la
+ventana principal.
+
 El programa crea un archivo oculto `.youtube-download-archive.txt` en la
 carpeta de destino para no volver a descargar videos que ya se procesaron.
 Los archivos se guardan como `Título [id].mp3` o `Título [id].mp4`.
@@ -105,7 +107,8 @@ python -m unittest discover -s tests
 ## Publicar una versión
 
 El código fuente puede publicarse en GitHub y el contenido de
-`dist\Descargador` puede subirse como un archivo ZIP en una Release. No
+`dist\Descargador.exe` puede subirse como un archivo independiente en una
+Release. No
 incluyas canciones, videos, `__pycache__` ni archivos de compilación en el
 repositorio. Comprueba las licencias de FFmpeg y respeta los términos de
 servicio de los sitios descargados.

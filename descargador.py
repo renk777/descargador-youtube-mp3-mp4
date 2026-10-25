@@ -20,20 +20,17 @@ DEFAULT_OUTPUT_DIR = Path(r"C:\Users\kenne\Music\canciones")
 
 
 def _application_dir() -> Path:
+    if hasattr(sys, "_MEIPASS"):
+        return Path(sys._MEIPASS)
     if getattr(sys, "frozen", False):
         return Path(sys.executable).resolve().parent
     return Path(__file__).resolve().parent
 
 
 def _ffmpeg_location() -> str | None:
-    search_dirs = [_application_dir() / "ffmpeg" / "bin"]
-    if getattr(sys, "frozen", False):
-        bundle_dir = getattr(sys, "_MEIPASS", None)
-        if bundle_dir:
-            search_dirs.insert(0, Path(bundle_dir) / "ffmpeg" / "bin")
-    for directory in search_dirs:
-        if (directory / "ffmpeg.exe").is_file():
-            return str(directory)
+    bundled = _application_dir() / "ffmpeg" / "bin"
+    if (bundled / "ffmpeg.exe").is_file():
+        return str(bundled)
     if shutil.which("ffmpeg"):
         return None
     return None
@@ -114,7 +111,7 @@ class DescargadorApp:
         ).grid(row=0, column=0, sticky="w")
         ttk.Label(
             links_panel,
-            text="Pega un enlace y aparecerá automáticamente otro campo para añadir más.",
+            text="Pega tu playlist o tu link de YouTube",
             style="Field.TLabel",
         ).grid(row=1, column=0, sticky="w", pady=(4, 12))
 
@@ -167,9 +164,14 @@ class DescargadorApp:
         ttk.Label(main, textvariable=self.status, style="Status.TLabel").grid(
             row=4, column=0, sticky="w"
         )
+        ttk.Label(
+            main,
+            text="by kenner manuel varilla fuentes",
+            style="Status.TLabel",
+        ).grid(row=5, column=0, sticky="w", pady=(10, 0))
 
         buttons = ttk.Frame(main)
-        buttons.grid(row=5, column=0, sticky="e", pady=(16, 0))
+        buttons.grid(row=6, column=0, sticky="e", pady=(12, 0))
         ttk.Button(
             buttons, text="Limpiar enlaces", command=self._clear_urls,
             style="Secondary.TButton"
