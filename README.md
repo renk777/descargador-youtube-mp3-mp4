@@ -75,8 +75,9 @@ aplicación y FFmpeg. Puedes distribuir ese archivo directamente.
    automáticamente otro campo para añadir más enlaces.
 2. Para una lista de reproducción, pega el enlace de la lista; se procesarán
    todos sus videos.
-3. La carpeta predeterminada es `C:\Users\kenne\Music\canciones`. Puedes
-   cambiarla con el botón **Buscar...** para seleccionar otra carpeta.
+3. La carpeta predeterminada es la carpeta de música del usuario (`Music` o
+   `Música`), dentro de `canciones`. Puedes cambiarla con **Buscar...**.
+   La aplicación recuerda la última carpeta elegida para la próxima vez.
 4. En **Formato de salida**, selecciona **MP3 (audio)** o **MP4 (video)**.
 5. Pulsa el botón de descarga, que indicará **Descargar MP3** o
    **Descargar MP4** según el formato elegido.

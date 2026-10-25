@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import json
 import queue
 import shutil
 import sys
@@ -16,15 +17,50 @@ except ImportError:
     yt_dlp = None
 
 
-DEFAULT_OUTPUT_DIR = Path(r"C:\Users\kenne\Music\canciones")
-
-
 def _application_dir() -> Path:
     if hasattr(sys, "_MEIPASS"):
         return Path(sys._MEIPASS)
     if getattr(sys, "frozen", False):
         return Path(sys.executable).resolve().parent
     return Path(__file__).resolve().parent
+
+
+def _default_output_dir() -> Path:
+    home = Path.home()
+    music_dir = next(
+        (home / name for name in ("Music", "Música") if (home / name).is_dir()),
+        home / "Music",
+    )
+    return music_dir / "canciones"
+
+
+def _config_path() -> Path:
+    app_data = os.environ.get("APPDATA")
+    base = Path(app_data) if app_data else Path.home() / ".config"
+    return base / "DescargadorYouTube" / "config.json"
+
+
+def _load_output_dir() -> Path:
+    path = _config_path()
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        saved_dir = data.get("output_dir")
+        if isinstance(saved_dir, str) and saved_dir.strip():
+            return Path(saved_dir)
+    except FileNotFoundError:
+        pass
+    except (OSError, json.JSONDecodeError):
+        pass
+    return _default_output_dir()
+
+
+def _save_output_dir(output_dir: Path) -> None:
+    path = _config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps({"output_dir": str(output_dir)}, indent=2),
+        encoding="utf-8",
+    )
 
 
 def _ffmpeg_location() -> str | None:
@@ -67,7 +103,7 @@ class DescargadorApp:
                         background="#1a2636", arrowcolor="#9aa9bd")
         style.configure("Dark.TRadiobutton", background="#141e2c", foreground="#dbe7f5")
 
-        self.output_dir = tk.StringVar(value=str(DEFAULT_OUTPUT_DIR))
+        self.output_dir = tk.StringVar(value=str(_load_output_dir()))
         self.format_var = tk.StringVar(value="mp3")
         self.status = tk.StringVar(value="Listo para descargar.")
         self.url_vars: list[tk.StringVar] = []
@@ -76,6 +112,7 @@ class DescargadorApp:
         self.events: queue.Queue[tuple[str, object]] = queue.Queue()
 
         self._build_ui()
+        self.root.protocol("WM_DELETE_WINDOW", self._on_close)
         self.root.after(100, self._process_events)
 
     def _build_ui(self) -> None:
@@ -168,7 +205,7 @@ class DescargadorApp:
             main,
             text="by kenner manuel varilla fuentes",
             style="Status.TLabel",
-        ).grid(row=5, column=0, sticky="w", pady=(10, 0))
+        ).grid(row=7, column=0, sticky="sw", pady=(22, 0))
 
         buttons = ttk.Frame(main)
         buttons.grid(row=6, column=0, sticky="e", pady=(12, 0))
@@ -184,6 +221,13 @@ class DescargadorApp:
         self.format_var.trace_add("write", self._update_download_button)
 
         self.url_entries[0].focus_set()
+
+    def _on_close(self) -> None:
+        try:
+            _save_output_dir(Path(self.output_dir.get().strip()).expanduser())
+        except OSError:
+            pass
+        self.root.destroy()
 
     def _add_url_field(self) -> None:
         variable = tk.StringVar()
@@ -221,6 +265,13 @@ class DescargadorApp:
         )
         if selected:
             self.output_dir.set(selected)
+            try:
+                _save_output_dir(Path(selected))
+            except OSError as error:
+                messagebox.showwarning(
+                    "No se pudo guardar la preferencia",
+                    f"La carpeta se usará esta vez, pero no se pudo recordar:\n{error}",
+                )
 
     def _start_download(self) -> None:
         if yt_dlp is None:
@@ -248,6 +299,13 @@ class DescargadorApp:
         if not self.output_dir.get().strip():
             messagebox.showwarning("Falta la carpeta", "Indica una carpeta de destino.")
             return
+        try:
+            _save_output_dir(output)
+        except OSError as error:
+            messagebox.showwarning(
+                "No se pudo guardar la preferencia",
+                f"La descarga continuará, pero la carpeta no se recordará:\n{error}",
+            )
 
         try:
             output.mkdir(parents=True, exist_ok=True)
