@@ -26,9 +26,14 @@ def _application_dir() -> Path:
 
 
 def _ffmpeg_location() -> str | None:
-    bundled = _application_dir() / "ffmpeg" / "bin"
-    if (bundled / "ffmpeg.exe").is_file():
-        return str(bundled)
+    search_dirs = [_application_dir() / "ffmpeg" / "bin"]
+    if getattr(sys, "frozen", False):
+        bundle_dir = getattr(sys, "_MEIPASS", None)
+        if bundle_dir:
+            search_dirs.insert(0, Path(bundle_dir) / "ffmpeg" / "bin")
+    for directory in search_dirs:
+        if (directory / "ffmpeg.exe").is_file():
+            return str(directory)
     if shutil.which("ffmpeg"):
         return None
     return None
@@ -38,19 +43,38 @@ class DescargadorApp:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
         self.root.title("Descargador de YouTube")
-        self.root.minsize(720, 540)
-        self.root.geometry("780x600")
+        self.root.minsize(820, 620)
+        self.root.geometry("980x720")
 
         style = ttk.Style()
-        if "vista" in style.theme_names():
-            style.theme_use("vista")
-        style.configure("Title.TLabel", font=("Segoe UI", 18, "bold"))
-        style.configure("Subtitle.TLabel", foreground="#555555")
-        style.configure("Status.TLabel", foreground="#555555")
+        style.theme_use("clam")
+        style.configure("App.TFrame", background="#0f1722")
+        style.configure("Panel.TFrame", background="#141e2c")
+        style.configure("Title.TLabel", background="#0f1722", foreground="#f4f7fb",
+                        font=("Segoe UI", 21, "bold"))
+        style.configure("Subtitle.TLabel", background="#0f1722", foreground="#9aa9bd",
+                        font=("Segoe UI", 10))
+        style.configure("Section.TLabel", background="#141e2c", foreground="#f4f7fb",
+                        font=("Segoe UI", 12, "bold"))
+        style.configure("Field.TLabel", background="#141e2c", foreground="#b7c5d8",
+                        font=("Segoe UI", 9))
+        style.configure("Status.TLabel", background="#0f1722", foreground="#9aa9bd")
+        style.configure("Primary.TButton", background="#287cf5", foreground="#ffffff",
+                        font=("Segoe UI", 10, "bold"), padding=(16, 9))
+        style.map("Primary.TButton", background=[("active", "#4590ff")])
+        style.configure("Secondary.TButton", background="#1d2a3b", foreground="#dbe7f5",
+                        padding=(10, 7))
+        style.configure("Dark.TEntry", fieldbackground="#1a2636", foreground="#e5edf7",
+                        insertcolor="#ffffff", bordercolor="#30425a", padding=8)
+        style.configure("Dark.TCombobox", fieldbackground="#1a2636", foreground="#e5edf7",
+                        background="#1a2636", arrowcolor="#9aa9bd")
+        style.configure("Dark.TRadiobutton", background="#141e2c", foreground="#dbe7f5")
 
         self.output_dir = tk.StringVar(value=str(DEFAULT_OUTPUT_DIR))
         self.format_var = tk.StringVar(value="mp3")
         self.status = tk.StringVar(value="Listo para descargar.")
+        self.url_vars: list[tk.StringVar] = []
+        self.url_entries: list[ttk.Entry] = []
         self.is_downloading = False
         self.events: queue.Queue[tuple[str, object]] = queue.Queue()
 
@@ -58,10 +82,11 @@ class DescargadorApp:
         self.root.after(100, self._process_events)
 
     def _build_ui(self) -> None:
-        main = ttk.Frame(self.root, padding=16)
+        self.root.configure(bg="#0f1722")
+        main = ttk.Frame(self.root, padding=(28, 24), style="App.TFrame")
         main.pack(fill=tk.BOTH, expand=True)
         main.columnconfigure(0, weight=1)
-        main.rowconfigure(3, weight=1)
+        main.rowconfigure(2, weight=1)
 
         ttk.Label(
             main,
@@ -71,70 +96,109 @@ class DescargadorApp:
         ttk.Label(
             main,
             text=(
-                "Convierte videos y listas de reproducción a MP3. Pega uno o "
-                "varios enlaces, uno por línea."
+                "Descarga tus videos favoritos en MP3 o MP4"
             ),
-            wraplength=640,
             style="Subtitle.TLabel",
-        ).grid(row=1, column=0, sticky="w", pady=(4, 16))
+        ).grid(row=1, column=0, sticky="w", pady=(3, 22))
 
-        url_frame = ttk.LabelFrame(main, text="Enlaces de YouTube", padding=8)
-        url_frame.grid(row=3, column=0, sticky="nsew")
-        url_frame.columnconfigure(0, weight=1)
-        url_frame.rowconfigure(0, weight=1)
+        content = ttk.Frame(main, style="App.TFrame")
+        content.grid(row=2, column=0, sticky="nsew")
+        content.columnconfigure(0, weight=1)
+        content.rowconfigure(1, weight=1)
 
-        self.url_text = tk.Text(url_frame, height=8, wrap=tk.WORD)
-        self.url_text.grid(row=0, column=0, sticky="nsew")
-        url_scroll = ttk.Scrollbar(
-            url_frame, orient=tk.VERTICAL, command=self.url_text.yview
+        links_panel = ttk.Frame(content, padding=18, style="Panel.TFrame")
+        links_panel.grid(row=0, column=0, sticky="ew")
+        links_panel.columnconfigure(0, weight=1)
+        ttk.Label(
+            links_panel, text="Enlaces de YouTube", style="Section.TLabel"
+        ).grid(row=0, column=0, sticky="w")
+        ttk.Label(
+            links_panel,
+            text="Pega un enlace y aparecerá automáticamente otro campo para añadir más.",
+            style="Field.TLabel",
+        ).grid(row=1, column=0, sticky="w", pady=(4, 12))
+
+        self.links_container = ttk.Frame(links_panel, style="Panel.TFrame")
+        self.links_container.grid(row=2, column=0, sticky="ew")
+        self.links_container.columnconfigure(0, weight=1)
+        self._add_url_field()
+
+        options = ttk.Frame(content, padding=(0, 18, 0, 0), style="App.TFrame")
+        options.grid(row=1, column=0, sticky="nsew")
+        options.columnconfigure(0, weight=1)
+        options.columnconfigure(1, weight=1)
+        options.columnconfigure(2, weight=1)
+        ttk.Label(options, text="Formato", style="Field.TLabel").grid(
+            row=0, column=0, sticky="w", padx=(0, 12)
         )
-        url_scroll.grid(row=0, column=1, sticky="ns")
-        self.url_text.configure(yscrollcommand=url_scroll.set)
-
-        folder_frame = ttk.Frame(main)
-        folder_frame.grid(row=4, column=0, sticky="ew", pady=(12, 0))
-        folder_frame.columnconfigure(1, weight=1)
-        ttk.Label(folder_frame, text="Guardar en:").grid(row=0, column=0, padx=(0, 8))
-        ttk.Entry(folder_frame, textvariable=self.output_dir).grid(
-            row=0, column=1, sticky="ew"
+        ttk.Label(options, text="Carpeta de destino", style="Field.TLabel").grid(
+            row=0, column=1, columnspan=2, sticky="w"
         )
-        ttk.Button(folder_frame, text="Buscar...", command=self._choose_folder).grid(
-            row=0, column=2, padx=(8, 0)
-        )
-
-        format_frame = ttk.LabelFrame(main, text="Formato de salida", padding=8)
-        format_frame.grid(row=5, column=0, sticky="ew", pady=(12, 0))
+        format_frame = ttk.Frame(options, style="Panel.TFrame")
+        format_frame.grid(row=1, column=0, sticky="ew", padx=(0, 12), pady=(6, 0))
         ttk.Radiobutton(
             format_frame,
             text="MP3 (audio)",
             variable=self.format_var,
             value="mp3",
-        ).pack(side=tk.LEFT, padx=(0, 20))
+            style="Dark.TRadiobutton",
+        ).pack(side=tk.LEFT, padx=12, pady=10)
         ttk.Radiobutton(
             format_frame,
             text="MP4 (video)",
             variable=self.format_var,
             value="mp4",
-        ).pack(side=tk.LEFT)
+            style="Dark.TRadiobutton",
+        ).pack(side=tk.LEFT, padx=12, pady=10)
+
+        folder_frame = ttk.Frame(options, style="Panel.TFrame")
+        folder_frame.grid(row=1, column=1, columnspan=2, sticky="ew", pady=(6, 0))
+        folder_frame.columnconfigure(0, weight=1)
+        ttk.Entry(
+            folder_frame, textvariable=self.output_dir, style="Dark.TEntry"
+        ).grid(row=0, column=0, sticky="ew")
+        ttk.Button(
+            folder_frame, text="Buscar...", command=self._choose_folder,
+            style="Secondary.TButton"
+        ).grid(row=0, column=1, padx=(8, 0))
 
         self.progress = ttk.Progressbar(main, mode="determinate", maximum=100)
-        self.progress.grid(row=6, column=0, sticky="ew", pady=(18, 4))
+        self.progress.grid(row=3, column=0, sticky="ew", pady=(18, 4))
         ttk.Label(main, textvariable=self.status, style="Status.TLabel").grid(
-            row=7, column=0, sticky="w"
+            row=4, column=0, sticky="w"
         )
 
         buttons = ttk.Frame(main)
-        buttons.grid(row=8, column=0, sticky="e", pady=(16, 0))
+        buttons.grid(row=5, column=0, sticky="e", pady=(16, 0))
         ttk.Button(
-            buttons, text="Limpiar enlaces", command=self._clear_urls
+            buttons, text="Limpiar enlaces", command=self._clear_urls,
+            style="Secondary.TButton"
         ).pack(side=tk.LEFT, padx=(0, 8))
         self.download_button = ttk.Button(
-            buttons, text="Descargar MP3", command=self._start_download
+            buttons, text="Descargar MP3", command=self._start_download,
+            style="Primary.TButton"
         )
         self.download_button.pack(side=tk.RIGHT)
         self.format_var.trace_add("write", self._update_download_button)
 
-        self.url_text.focus_set()
+        self.url_entries[0].focus_set()
+
+    def _add_url_field(self) -> None:
+        variable = tk.StringVar()
+        entry = ttk.Entry(
+            self.links_container, textvariable=variable, style="Dark.TEntry"
+        )
+        entry.grid(row=len(self.url_entries), column=0, sticky="ew", pady=3)
+        entry.bind("<KeyRelease>", self._on_url_change)
+        self.url_vars.append(variable)
+        self.url_entries.append(entry)
+
+    def _on_url_change(self, _event: tk.Event[tk.Entry]) -> None:
+        if self.url_vars and self.url_vars[-1].get().strip():
+            self._add_url_field()
+
+    def _collect_urls(self) -> list[str]:
+        return [variable.get().strip() for variable in self.url_vars if variable.get().strip()]
 
     def _update_download_button(self, *_args: object) -> None:
         self.download_button.configure(
@@ -142,7 +206,11 @@ class DescargadorApp:
         )
 
     def _clear_urls(self) -> None:
-        self.url_text.delete("1.0", tk.END)
+        for entry in self.url_entries[1:]:
+            entry.destroy()
+        self.url_vars = self.url_vars[:1]
+        self.url_entries = self.url_entries[:1]
+        self.url_vars[0].set("")
         self.status.set("Listo para descargar.")
 
     def _choose_folder(self) -> None:
@@ -161,11 +229,7 @@ class DescargadorApp:
             )
             return
 
-        urls = [
-            line.strip()
-            for line in self.url_text.get("1.0", tk.END).splitlines()
-            if line.strip()
-        ]
+        urls = self._collect_urls()
         invalid_urls = [url for url in urls if not self._is_youtube_url(url)]
         if not urls:
             messagebox.showwarning("Faltan enlaces", "Pega al menos un enlace de YouTube.")

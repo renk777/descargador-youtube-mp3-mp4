@@ -49,7 +49,7 @@ También puedes iniciar el programa haciendo doble clic en `descargador.py`
 si `.py` está asociado con Python.
 
 Como alternativa, haz doble clic en `iniciar_descargador.bat`. Este archivo
-inicia el programa directamente sin tener que abrir PowerShell.
+inicia el programa sin abrir una ventana de CMD.
 
 ## Crear el ejecutable de Windows
 
@@ -63,12 +63,17 @@ Set-ExecutionPolicy -Scope Process Bypass
 .\build_windows.ps1
 ```
 
-El resultado estará en `dist\Descargador\Descargador.exe`. Distribuye toda la
-carpeta `dist\Descargador`, no solamente el `.exe`, porque incluye FFmpeg.
+El resultado será `dist\Descargador.exe`. Es un ejecutable de un solo archivo:
+se puede abrir con doble clic, no muestra una ventana de CMD y contiene
+FFmpeg. Puedes distribuir solamente ese `.exe`.
+
+> El ejecutable solo puede compilarse si `ffmpeg.exe` y `ffprobe.exe` están
+> presentes en `ffmpeg\bin` antes de ejecutar el script.
 
 ## Uso
 
-1. Pega uno o varios enlaces en el cuadro de texto.
+1. Pega un enlace en el primer campo. Al escribirlo, aparecerá
+   automáticamente otro campo para añadir más enlaces.
 2. Para una lista de reproducción, pega el enlace de la lista; se procesarán
    todos sus videos.
 3. La carpeta predeterminada es `C:\Users\kenne\Music\canciones`. Puedes
@@ -84,8 +89,8 @@ Al elegir MP4, el programa pregunta cómo quieres seleccionar la calidad:
   independiente para cada video.
 - **Cancelar**: vuelve a la pantalla principal sin iniciar la descarga.
 
-También puedes usar **Limpiar enlaces** para vaciar rápidamente el cuadro de
-texto antes de pegar una nueva lista.
+También puedes usar **Limpiar enlaces** para quitar todos los campos y empezar
+de nuevo.
 
 El programa crea un archivo oculto `.youtube-download-archive.txt` en la
 carpeta de destino para no volver a descargar videos que ya se procesaron.
