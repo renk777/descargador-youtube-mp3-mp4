@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+.youtube-download-archive.txt
+*.mp3
+*.mp4
+build/
+dist/
+*.spec
+ffmpeg/
+.pytest_cache/
