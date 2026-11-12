@@ -8,3 +8,25 @@ dist/
 *.spec
 ffmpeg/
 .pytest_cache/
+
+# Runtime binaries and user session artifacts
+runtime/*.exe
+runtime/*.zip
+fallidos_*.txt
+cookies*.txt
+previews/
+
+# Isolated publication checkout and release artifacts
+.release-repo/
+release/
+
+# Download outputs
+*.m4a
+*.opus
+*.flac
+*.wav
+*.webm
+*.mkv
+*.part
+*.ytdl
+.youtube-archive-*.txt
