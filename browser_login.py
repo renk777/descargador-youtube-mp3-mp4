@@ -1,6 +1,9 @@
 """Free browser sign-in flow. Passwords are entered only in the external browser."""
 import os
 import socket
+import shutil
+import subprocess
+from pathlib import Path
 import sys
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
@@ -8,50 +11,32 @@ from urllib.request import Request, urlopen
 LOGIN_URL = 'https://accounts.google.com/ServiceLogin?service=youtube&continue=https%3A%2F%2Fwww.youtube.com%2F'
 
 
-def _default_browser_executable():
-    """Read Windows' effective HTTPS association without launching any application."""
-    if sys.platform != 'win32':
-        return ''
-    try:
-        import ctypes
-        from ctypes import wintypes
-        query = ctypes.WinDLL('shlwapi').AssocQueryStringW
-        query.argtypes = [wintypes.DWORD, ctypes.c_int, wintypes.LPCWSTR, wintypes.LPCWSTR,
-                          wintypes.LPWSTR, ctypes.POINTER(wintypes.DWORD)]
-        query.restype = ctypes.c_long
-        length = wintypes.DWORD()
-        query(0x1000, 2, 'https', None, None, ctypes.byref(length))
-        if not 0 < length.value < 32768:
-            return ''
-        buffer = ctypes.create_unicode_buffer(length.value)
-        if query(0x1000, 2, 'https', None, buffer, ctypes.byref(length)) == 0:
-            return buffer.value
-    except (OSError, AttributeError):
-        pass
-    return ''
-
-
 def available_browser():
-    # Detection is solely for reading that same browser's session. Never pick another browser.
-    from pathlib import PureWindowsPath
-    executable = PureWindowsPath(_default_browser_executable().strip('"')).name.lower()
-    known = {
-        'brave.exe': ('brave', 'Brave'), 'chrome.exe': ('chrome', 'Chrome'),
-        'msedge.exe': ('edge', 'Edge'), 'firefox.exe': ('firefox', 'Firefox'),
-        'opera.exe': ('opera', 'Opera'), 'vivaldi.exe': ('vivaldi', 'Vivaldi'),
-        'chromium.exe': ('chromium', 'Chromium'), 'whale.exe': ('whale', 'Whale'),
-    }
-    return known.get(executable, ('', 'tu navegador predeterminado'))
+    """Restore Firefox-first session sharing without opening the default browser."""
+    for key, exe, locations in (
+        ('firefox', 'firefox.exe', ('Mozilla Firefox/firefox.exe',)),
+        ('edge', 'msedge.exe', ('Microsoft/Edge/Application/msedge.exe',)),
+        ('chrome', 'chrome.exe', ('Google/Chrome/Application/chrome.exe',)),
+    ):
+        found = shutil.which(exe)
+        if found:
+            return key, found
+        for base in (os.environ.get('ProgramFiles'), os.environ.get('ProgramFiles(x86)'), os.environ.get('LOCALAPPDATA')):
+            if base:
+                for relative in locations:
+                    candidate = Path(base) / relative
+                    if candidate.is_file():
+                        return key, str(candidate)
+    return None
 
 
-def open_sign_in(browser=None):
-    """Exactly one system-default URL dispatch; no executable launches or fallbacks."""
-    if sys.platform == 'win32':
-        os.startfile(LOGIN_URL)
-    else:
-        import webbrowser
-        if not webbrowser.open(LOGIN_URL, new=2):
-            raise OSError('El sistema no pudo abrir el navegador predeterminado.')
+def open_sign_in(browser):
+    """Launch only the selected browser once; never also dispatch to the default."""
+    if not browser:
+        raise OSError('No se encontró un navegador compatible. Instala Firefox para conectar tu sesión.')
+    key, executable = browser
+    args = [executable, '-new-tab', LOGIN_URL] if key == 'firefox' else [executable, LOGIN_URL]
+    subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
 def verify_browser_session(browser_name):

@@ -1,4 +1,4 @@
-# Descargador de YouTube · v0.4.0
+# Descargador de YouTube · v0.4.1
 
 Aplicación de escritorio en Python con Qt (PySide6), yt-dlp, FFmpeg y Deno.
 El logo aparece únicamente en el icono del ejecutable y en la barra de título,
@@ -72,15 +72,16 @@ fuente no tenga.
    puedes pulsar **Ya inicié sesión**.
 4. Cuando aparezca **YouTube conectado**, inicia tus descargas.
 
-La página se abre una sola vez mediante la asociación HTTPS del sistema,
-siempre en el navegador predeterminado del dispositivo. No se ejecuta un
-segundo navegador ni se utiliza Firefox como alternativa. Los clics repetidos
-mientras está pendiente el acceso no vuelven a abrir la página.
+Se restaura el acceso que prefiere Firefox si está instalado. La página se
+abre directamente en ese navegador, sin abrir también Brave ni el navegador
+predeterminado. Si Firefox no está instalado, se busca Edge o Chrome como en
+el flujo anterior. Si no hay ninguno compatible, se explica que puedes instalar
+Firefox gratuitamente.
 
-Se identifica el mismo navegador para comprobar su sesión: Brave, Chrome,
-Edge, Firefox, Opera, Vivaldi, Chromium y Whale. Si Windows protege sus cookies
-o el navegador no admite lectura de sesión, se explica la limitación sin
-abrir otro navegador. Los videos que no requieren sesión siguen disponibles.
+Los clics repetidos mientras está pendiente el acceso no abren nuevas ventanas.
+Al volver al descargador se comprueba la sesión del mismo navegador que se abrió.
+Si Windows protege sus cookies, se explica la limitación sin abrir otro navegador
+automáticamente. Los videos que no requieren sesión siguen disponibles.
 
 No necesitas exportar cookies, contratar un servicio, configurar claves API ni
 pagar por esta función. No se incluye ningún servicio de pago. La selección

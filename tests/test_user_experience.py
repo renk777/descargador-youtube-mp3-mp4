@@ -30,25 +30,27 @@ class ErrorMessagesTests(unittest.TestCase):
             with self.assertRaises(ConnectionError):
                 browser_login.check_connection()
 
-    def test_external_browser_uses_exactly_one_system_default_dispatch(self):
-        with patch.object(browser_login.sys, 'platform', 'win32'), \
-             patch.object(browser_login.os, 'startfile', create=True) as launch:
-            browser_login.open_sign_in()
-        launch.assert_called_once_with(browser_login.LOGIN_URL)
+    def test_sign_in_launches_firefox_once_without_opening_default_browser(self):
+        with patch.object(browser_login.subprocess, 'Popen') as launch, \
+             patch.object(browser_login.os, 'startfile', create=True) as default:
+            browser_login.open_sign_in(('firefox', 'firefox.exe'))
+        launch.assert_called_once()
+        self.assertEqual(launch.call_args.args[0], ['firefox.exe', '-new-tab', browser_login.LOGIN_URL])
+        default.assert_not_called()
         self.assertNotIn('password', browser_login.LOGIN_URL)
 
-    def test_detects_brave_as_default_without_preferring_installed_firefox(self):
-        with patch.object(browser_login, '_default_browser_executable', return_value=r'C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe'):
-            self.assertEqual(browser_login.available_browser(), ('brave', 'Brave'))
+    def test_firefox_is_preferred_over_other_installed_browsers(self):
+        with patch.object(browser_login.shutil, 'which', side_effect=lambda exe: exe):
+            self.assertEqual(browser_login.available_browser(), ('firefox', 'firefox.exe'))
 
-    def test_unknown_default_is_not_replaced_with_another_browser(self):
-        with patch.object(browser_login, '_default_browser_executable', return_value='unrecognized.exe'):
-            self.assertEqual(browser_login.available_browser()[0], '')
-        with patch.object(browser_login.sys, 'platform', 'win32'), \
-             patch.object(browser_login.os, 'startfile', create=True, side_effect=OSError('No association')) as launch:
+    def test_no_compatible_browser_does_not_launch_the_default_as_fallback(self):
+        with patch.object(browser_login.shutil, 'which', return_value=None), \
+             patch.object(browser_login.Path, 'is_file', return_value=False):
+            self.assertIsNone(browser_login.available_browser())
+        with patch.object(browser_login.subprocess, 'Popen') as launch:
             with self.assertRaises(OSError):
-                browser_login.open_sign_in()
-        launch.assert_called_once()
+                browser_login.open_sign_in(None)
+        launch.assert_not_called()
 
     def test_session_checks_only_youtube_authentication_cookies(self):
         def cookie(host, name):

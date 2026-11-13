@@ -117,10 +117,10 @@ class InterfaceTests(unittest.TestCase):
         self.assertEqual(self.window.url_text.toPlainText(), 'https://youtu.be/aaaaaaaaaaa')
 
     def test_browser_sign_in_needs_no_cookie_file_or_paid_service(self):
-        with patch.object(ui.browser_login, 'available_browser', return_value=('brave', 'Brave')), \
+        with patch.object(ui.browser_login, 'available_browser', return_value=('firefox', 'firefox.exe')), \
              patch.object(ui.browser_login, 'open_sign_in') as open_browser:
             self.window._session_dialog()
-        open_browser.assert_called_once_with()
+        open_browser.assert_called_once_with(('firefox', 'firefox.exe'))
         self.assertTrue(self.window.session_pending)
         self.assertIn('Ya inicié sesión', self.window.notice.action.text())
         with patch.object(ui.browser_login, 'check_connection'), \
@@ -130,8 +130,8 @@ class InterfaceTests(unittest.TestCase):
             self.window._verify_sign_in()
             self.assertFalse(self.window.download_button.isEnabled())
             self.window._process_events()
-        verify.assert_called_once_with('brave')
-        self.assertEqual(self.window.cookie_browser, 'brave')
+        verify.assert_called_once_with('firefox')
+        self.assertEqual(self.window.cookie_browser, 'firefox')
         self.assertEqual(self.window.cookie_file, '')
         self.assertFalse(self.window.session_pending)
         self.assertTrue(self.window.download_button.isEnabled())
@@ -146,12 +146,12 @@ class InterfaceTests(unittest.TestCase):
 
 
     def test_repeated_login_clicks_and_session_check_never_open_second_browser(self):
-        with patch.object(ui.browser_login, 'available_browser', return_value=('brave', 'Brave')), \
+        with patch.object(ui.browser_login, 'available_browser', return_value=('firefox', 'firefox.exe')), \
              patch.object(ui.browser_login, 'open_sign_in') as launch:
             self.window._session_dialog()
             self.window._session_dialog()
             self.window._session_dialog()
-            launch.assert_called_once_with()
+            launch.assert_called_once_with(('firefox', 'firefox.exe'))
         with patch.object(ui.browser_login, 'open_sign_in') as launch, \
              patch.object(ui.browser_login, 'check_connection'), \
              patch.object(ui.browser_login, 'verify_browser_session', side_effect=RuntimeError('DPAPI decrypt failed')), \
@@ -162,17 +162,18 @@ class InterfaceTests(unittest.TestCase):
             launch.assert_not_called()
         self.assertEqual(self.window.notice.title.text(), 'No pudimos conectar la sesión')
         self.assertFalse(self.window.notice.action.isVisible())
-        self.assertEqual(self.window.login_browser[0], 'brave')
+        self.assertEqual(self.window.login_browser[0], 'firefox')
 
-    def test_unknown_default_browser_still_opens_once_without_session_fallback(self):
-        with patch.object(ui.browser_login, 'available_browser', return_value=('', 'tu navegador predeterminado')), \
+    def test_missing_compatible_browser_shows_notice_without_launching(self):
+        with patch.object(ui.browser_login, 'available_browser', return_value=None), \
              patch.object(ui.browser_login, 'open_sign_in') as launch, \
              patch.object(ui.browser_login, 'verify_browser_session') as verify:
             self.window._session_dialog()
             self.window._verify_sign_in()
-            launch.assert_called_once_with()
+            launch.assert_not_called()
             verify.assert_not_called()
-        self.assertIn('No podemos conectar', self.window.notice.title.text())
+        self.assertFalse(self.window.session_pending)
+        self.assertIn('Firefox', self.window.notice.title.text())
 
     def test_centers_once_inside_monitor_work_area(self):
         from PySide6.QtCore import QRect

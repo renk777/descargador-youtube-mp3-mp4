@@ -13,7 +13,7 @@ def describe_error(error) -> UserError:
     text = str(error).lower()
     if any(term in text for term in ('app-bound', 'dpapi', 'decrypt', 'cookie database', 'cookies database', 'could not copy chrome')):
         return UserError('session_locked', 'No pudimos conectar la sesión',
-                         'Windows protege la sesión del navegador predeterminado y no permite leerla. No abriremos otro navegador. Puedes continuar con los videos que no necesitan sesión.')
+                         'Windows o el navegador no permiten leer esa sesión. Prueba el acceso con Firefox. No abriremos otro navegador automáticamente; puedes continuar con los videos que no necesitan sesión.')
     if any(term in text for term in ('getaddrinfo', 'name resolution', 'no such host', '11001', '10051',
                                      'network is unreachable', 'network unreachable', 'no internet', 'sin conexión', 'sin conexion',
                                      'unable to resolve', 'failed to resolve', 'temporary failure in name')):

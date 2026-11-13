@@ -486,38 +486,38 @@ class DescargadorApp(QMainWindow):
             return
         if self.session_pending:
             # Repeated clicks/returning focus may check the existing attempt, never open a second browser.
-            self._notify('Ya abrimos YouTube en tu navegador predeterminado',
+            self._notify('Ya abrimos YouTube para iniciar sesión',
                 'Termina de iniciar sesión allí y vuelve aquí. No abriremos otro navegador.',
                 'info', 'Ya inicié sesión', self._verify_sign_in)
             return
         self._login_opening = True
         try:
             browser = browser_login.available_browser()
+            if browser is None:
+                self._notify('Necesitas Firefox u otro navegador compatible',
+                    'Instala Firefox, que es gratuito, y vuelve a pulsar Iniciar sesión en YouTube. No hace falta exportar archivos.', 'warning')
+                return
             self.login_browser = browser
             self.session_pending = True
-            browser_login.open_sign_in()
+            browser_login.open_sign_in(browser)
         except OSError as error:
             self.login_browser = None
             self.session_pending = False
             self._log(str(error))
-            self._notify('No pudimos abrir el navegador predeterminado',
-                         'Comprueba que el dispositivo tenga un navegador predeterminado para abrir enlaces web y vuelve a intentarlo.')
+            self._notify('No pudimos abrir el navegador de inicio de sesión',
+                         'Comprueba que Firefox o el navegador seleccionado funcione y vuelve a intentarlo.')
             return
         finally:
             self._login_opening = False
         self.session_finish_button.show()
         self.session_button.setText('Comprobar sesión de YouTube')
-        self._notify('Termina de iniciar sesión en ' + browser[1],
-            'Usamos únicamente el navegador predeterminado del dispositivo. Vuelve aquí cuando hayas entrado en YouTube.',
+        name = {'firefox': 'Firefox', 'edge': 'Edge', 'chrome': 'Chrome'}.get(browser[0], 'el navegador')
+        self._notify('Termina de iniciar sesión en ' + name,
+            'Vuelve aquí cuando hayas entrado en YouTube. Preferimos Firefox para conectar tu sesión y no abriremos otro navegador.',
             'info', 'Ya inicié sesión', self._verify_sign_in)
 
     def _verify_sign_in(self):
         if self.is_downloading or self.session_checking or not self.login_browser:
-            return
-        if not self.login_browser[0]:
-            self._notify('No podemos conectar automáticamente esa sesión',
-                'El navegador predeterminado se abrió, pero no pudimos identificar un lector de sesión compatible. No abriremos otro navegador. Puedes descargar videos que no necesitan iniciar sesión.',
-                'warning')
             return
         self.session_checking = True
         self._refresh_session_controls()
