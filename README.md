@@ -1,4 +1,4 @@
-# Descargador de YouTube · v0.4.1
+# Descargador de YouTube · v0.5.0
 
 Aplicación de escritorio en Python con Qt (PySide6), yt-dlp, FFmpeg y Deno.
 El logo aparece únicamente en el icono del ejecutable y en la barra de título,
@@ -23,6 +23,40 @@ El ejecutable incluye Qt, FFmpeg, FFprobe, Deno y los scripts EJS de yt-dlp.
 Al ejecutar desde código, FFmpeg y FFprobe deben estar en `ffmpeg\bin` o en
 el PATH; Deno en `runtime\deno.exe` o en el PATH. También se admite Node
 instalado en el PATH si cumple los requisitos de yt-dlp.
+
+## Pausar y reanudar
+
+**Pausar** está junto a la barra de progreso. Cambia a **Reanudar** cuando solicitas
+la pausa. La pausa se aplica en el siguiente bloque procesado por yt-dlp, antes
+del siguiente video o entre etapas de procesamiento. Los archivos parciales se
+conservan y el lote continúa al reanudar.
+
+Mientras una consulta de red o un proceso de FFmpeg está en curso, el aviso dice
+que la pausa está pendiente. No se suspende ni se interrumpe a la fuerza FFmpeg:
+la operación termina antes de aplicar la pausa. La interfaz distingue entre
+«Pausa solicitada» y «Descarga en pausa». **Cancelar** sigue disponible incluso
+estando pausado y desbloquea el hilo para permitir el cierre.
+
+## Animaciones de Windows y Windhawk
+
+En Windows se conserva un marco nativo real (caption, menú de sistema y estilos
+de minimizar/maximizar/redimensionar), aunque la barra de título se dibuje con
+Qt. La superficie mantiene alfa y Acrylic sin utilizar WS_EX_LAYERED.
+
+Tras confirmar el cierre y terminar/cancelar las descargas, el HWND se mantiene
+visible hasta la llamada real a DestroyWindow. Esto permite que los hooks de
+cierre de Windhawk capturen la ventana, en lugar de encontrarla ya oculta por Qt.
+Las transiciones nativas no se fuerzan a desactivar y no se agrega una animación
+de cierre propia que compita con el sistema o con un mod.
+
+La apariencia y disponibilidad de la animación dependen de Windows y del mod
+instalado, sus exclusiones de procesos y sus ajustes. No se cambian preferencias
+de Windows/Windhawk ni se promete compatibilidad con todos los mods. Se han
+verificado los estilos y el orden del cierre nativo con una ventana real;
+no se ha validado visualmente cada mod de Windhawk.
+
+Referencia del hook de cierre:
+https://github.com/ramensoftware/windhawk-mods/blob/main/mods/windows-animations.wh.cpp
 
 ## Apariencia y ventana
 
@@ -102,8 +136,8 @@ y [motor JavaScript y EJS](https://github.com/yt-dlp/yt-dlp/wiki/EJS).
 
 Al iniciar una descarga se bloquean el formato, la calidad, los enlaces, la
 carpeta, la sesión, los botones de pegar/limpiar/abrir y los reintentos. También
-se desactiva Ctrl+Enter para evitar comenzar otro lote. **Cancelar** permanece
-disponible. Los controles se recuperan al finalizar, cancelar o fallar la
+se desactiva Ctrl+Enter para evitar comenzar otro lote. **Pausar/Reanudar** y **Cancelar** permanecen
+disponibles. Los controles se recuperan al finalizar, cancelar o fallar la
 preparación de la descarga; mover, minimizar y cerrar la ventana sigue permitido.
 
 Antes de comenzar se comprueba la conexión con YouTube en un hilo secundario.
@@ -147,6 +181,18 @@ propio archivo `.youtube-archive-*.txt`, para poder guardar el mismo video
 en distintos formatos. Si borraste un archivo y quieres recuperarlo,
 desactiva **Omitir descargas completadas**. Los archivos existentes no se
 sobrescriben. Los registros del programa anterior se conservan.
+
+## Corrección del arranque y compilación aislada
+
+El paquete de Windows se compila en `.venv-build`, con versiones fijadas en
+`requirements-build.txt` y un PATH reducido a Python y los directorios del sistema.
+Esto evita recoger DLL de otras herramientas, en particular una biblioteca ICU
+incompatible que provocaba `DLL load failed while importing QtCore`.
+
+Antes de dar la compilación por correcta se ejecuta `--check` desde una carpeta
+temporal con ese entorno reducido. `--diagnostic-report ruta.json` guarda el
+resultado y devuelve un código distinto de cero si falla, sin bloquear la prueba
+con un cuadro de traceback. La publicación exige que este diagnóstico pase.
 
 ## Compilar y verificar
 

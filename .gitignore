@@ -30,3 +30,5 @@ release/
 *.part
 *.ytdl
 .youtube-archive-*.txt
+
+.venv-build/

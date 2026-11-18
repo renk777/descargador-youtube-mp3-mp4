@@ -133,12 +133,54 @@ def _js_runtime():
     return {}
 
 
-def _download_options(settings, progress_hook, postprocessor_hook, logger, cancel_event):
+class PauseControl:
+    """Thread-safe cooperative gate; cancellation remains available while paused."""
+
+    def __init__(self):
+        self._condition = threading.Condition()
+        self._paused = False
+
+    @property
+    def paused(self):
+        with self._condition:
+            return self._paused
+
+    def pause(self):
+        with self._condition:
+            self._paused = True
+
+    def resume(self):
+        with self._condition:
+            self._paused = False
+            self._condition.notify_all()
+
+    def wait(self, cancel, on_state=None):
+        reported = False
+        try:
+            with self._condition:
+                while self._paused:
+                    if cancel.is_set():
+                        raise DownloadCancelled('Cancelado por el usuario')
+                    if not reported:
+                        reported = True
+                        if on_state:
+                            on_state(True)
+                    self._condition.wait(timeout=0.1)
+                if cancel.is_set():
+                    raise DownloadCancelled('Cancelado por el usuario')
+        finally:
+            if reported and on_state:
+                on_state(False)
+
+
+def _download_options(settings, progress_hook, postprocessor_hook, logger, cancel_event, pause_control=None):
     quality = settings.quality.split()[0].removesuffix('p')
     profile_quality = quality if quality.isdigit() else ('original' if settings.media_format in AUDIO_FORMATS else 'best')
     profile = f'{settings.media_format}-{profile_quality}'
 
     def check_cancel(_info, *, incomplete=False):
+        if pause_control:
+            pause_control.wait(cancel_event, lambda state: logger.events.put(('pause_state', state)))
         if cancel_event.is_set():
             raise DownloadCancelled('Cancelado por el usuario')
         return None
@@ -208,8 +250,9 @@ def _write_failure_report(output: Path, failed: list[str]) -> Path:
 class DownloadWorker:
     """Sequential video jobs, independent of the GUI; one failure never aborts the batch."""
 
-    def __init__(self, events, cancel):
+    def __init__(self, events, cancel, pause_control=None):
         self.events, self.cancel = events, cancel
+        self.pause_control = pause_control or PauseControl()
         self.last_progress = 0.0
         self.errors = []
 
@@ -224,6 +267,7 @@ class DownloadWorker:
         self.events.put(('log', str(message)))
 
     def _check_cancel(self):
+        self.pause_control.wait(self.cancel, lambda state: self.events.put(('pause_state', state)))
         if self.cancel.is_set():
             raise DownloadCancelled('Cancelado por el usuario')
 
@@ -297,7 +341,7 @@ class DownloadWorker:
                     cookie_copy = Path(temporary) / 'cookies.txt'
                     shutil.copyfile(settings.cookie_file, cookie_copy)
                     settings = replace(settings, cookie_file=str(cookie_copy))
-                options = _download_options(settings, self.progress, self.postprocess, self, self.cancel)
+                options = _download_options(settings, self.progress, self.postprocess, self, self.cancel, self.pause_control)
                 with yt_dlp.YoutubeDL(options) as downloader:
                     for submitted in urls:
                         self._check_cancel()

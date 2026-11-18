@@ -18,7 +18,8 @@ from PySide6.QtWidgets import (
     QVBoxLayout, QWidget,
 )
 import download_core as core
-from download_core import DownloadSettings, DownloadWorker
+from download_core import DownloadSettings, DownloadWorker, PauseControl
+from native_window import configure_native_window, handle_native_frame
 from windows_backdrop import enable_acrylic, set_acrylic_active
 from ui_animations import AnimatedButton, NoticeBar
 from user_errors import UserError, describe_error
@@ -112,12 +113,22 @@ class DescargadorApp(QMainWindow):
         super().__init__()
         self.setWindowTitle('Descargador de YouTube · v' + __version__)
         self.setWindowIcon(QIcon(str(core._application_dir() / 'logo.png')))
-        self.setWindowFlags(Qt.WindowType.Window | Qt.WindowType.FramelessWindowHint)
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self._native_frame = sys.platform == 'win32' and QApplication.platformName() == 'windows'
+        if self._native_frame:
+            self.setWindowFlags(Qt.WindowType.Window | Qt.WindowType.WindowMinMaxButtonsHint | Qt.WindowType.WindowSystemMenuHint)
+            self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+            configure_native_window(int(self.winId()))
+        else:
+            self.setWindowFlags(Qt.WindowType.Window | Qt.WindowType.FramelessWindowHint)
+            self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self._native_closing = False
         self.resize(1080, 850)
         self.setMinimumSize(860, 700)
         self.events = queue.Queue()
         self.cancel_event = threading.Event()
+        self.pause_control = PauseControl()
+        self.pause_requested = False
+        self.is_paused = False
         self.is_downloading = self.close_requested = False
         self.failed_urls, self.job_rows, self.controls = [], {}, []
         self.last_settings = None
@@ -320,7 +331,12 @@ class DescargadorApp(QMainWindow):
         self.progress_animation = QPropertyAnimation(self.progress, b'value', self)
         self.progress_animation.setDuration(200)
         self.progress_animation.setEasingCurve(QEasingCurve.Type.OutCubic)
-        footer.addWidget(self.progress)
+        progress_row = QHBoxLayout()
+        progress_row.addWidget(self.progress, 1)
+        self.pause_button = self._button('Pausar', self._toggle_pause)
+        self.pause_button.setEnabled(False)
+        progress_row.addWidget(self.pause_button)
+        footer.addLayout(progress_row)
         self.status_label = label('Todo listo. Añade tus enlaces para empezar.')
         self.status_label.setWordWrap(True)
         footer.addWidget(self.status_label)
@@ -373,6 +389,13 @@ class DescargadorApp(QMainWindow):
             elif event.type() == QEvent.Type.WindowStateChange and getattr(self, 'backdrop_initialized', False) and not self.isMinimized():
                 QTimer.singleShot(0, self._initialize_backdrop)
         return result
+
+    def nativeEvent(self, event_type, message):
+        if getattr(self, '_native_frame', False):
+            result = handle_native_frame(message, getattr(self, '_native_closing', False))
+            if result is not None:
+                return result
+        return super().nativeEvent(event_type, message)
 
     def _center_on_start(self):
         if self._centered_on_start:
@@ -623,7 +646,7 @@ class DescargadorApp(QMainWindow):
         self._log(f'Nueva descarga · {core.FORMAT_NAMES[settings.media_format]} · {settings.quality}')
         self._set_busy(True)
         self._notify('Preparando tus archivos', 'Comprobando la conexión con YouTube…', 'loading')
-        events, cancel = self.events, self.cancel_event
+        events, cancel, pause = self.events, self.cancel_event, self.pause_control
         def run():
             try:
                 browser_login.check_connection()
@@ -634,11 +657,15 @@ class DescargadorApp(QMainWindow):
                 events.put(('preflight_cancelled', None))
                 return
             events.put(('connection_ready', None))
-            DownloadWorker(events, cancel).run(list(urls), settings)
+            DownloadWorker(events, cancel, pause).run(list(urls), settings)
         threading.Thread(target=run, daemon=True).start()
 
     def _set_busy(self, busy):
         self.is_downloading = busy
+        self.pause_control.resume()
+        self.pause_requested = self.is_paused = False
+        self.pause_button.setText('Pausar')
+        self.pause_button.setEnabled(busy)
         for widget in self.controls:
             widget.setEnabled(not busy)
         self.url_text.setReadOnly(busy)
@@ -648,9 +675,28 @@ class DescargadorApp(QMainWindow):
         self.notice.set_busy(busy)
         self._refresh_session_controls()
 
+    def _toggle_pause(self):
+        if not self.is_downloading or self.cancel_event.is_set():
+            return
+        if self.pause_requested:
+            self.pause_control.resume()
+            self.pause_requested = self.is_paused = False
+            self.pause_button.setText('Pausar')
+            self.status_label.setText('Reanudando descarga…')
+            self._notify('Reanudando descarga', 'Continuaremos desde el punto donde se pausó.', 'loading')
+        else:
+            self.pause_requested = True
+            self.pause_control.pause()
+            self.pause_button.setText('Reanudar')
+            self.status_label.setText('Pausa solicitada · esperando a la operación actual…')
+            self._notify('Pausando la descarga',
+                'Se pausará en el siguiente bloque. Si hay una conversión o consulta en curso, esperamos a que termine.', 'loading')
+
     def _cancel(self):
         if self.is_downloading:
             self.cancel_event.set()
+            self.pause_control.resume()
+            self.pause_button.setEnabled(False)
             self.cancel_button.setEnabled(False)
             self.status_label.setText('Cancelando… esperando a que termine la operación actual.')
 
@@ -676,7 +722,22 @@ class DescargadorApp(QMainWindow):
                 event, value = self.events.get_nowait()
             except queue.Empty:
                 break
-            if event == 'session_result':
+            if event == 'pause_state':
+                if self.cancel_event.is_set() or not self.is_downloading:
+                    continue
+                if bool(value) != self.pause_control.paused:
+                    continue
+                self.is_paused = bool(value)
+                if value:
+                    self.progress_animation.stop()
+                    current = max(0, self.progress.value())
+                    self.progress.setRange(0, 1000)
+                    self.progress.setValue(current)
+                    self.status_label.setText('Descarga en pausa')
+                    self._notify('Descarga en pausa', 'Pulsa Reanudar para continuar o Cancelar para detener el lote.', 'info')
+                else:
+                    self.status_label.setText('Reanudando descarga…')
+            elif event == 'session_result':
                 connected, browser_name, error = value
                 self.session_checking = False
                 self._refresh_session_controls()
@@ -728,12 +789,12 @@ class DescargadorApp(QMainWindow):
                     self._notify_issue(issue)
             elif event == 'log':
                 self._log(str(value))
-            elif event == 'status' and not self.cancel_event.is_set():
+            elif event == 'status' and not self.cancel_event.is_set() and not self.pause_requested:
                 self.status_label.setText(str(value))
                 if 'FFmpeg' in str(value) or 'preparando el formato final' in str(value):
                     self.progress_animation.stop()
                     self.progress.setRange(0, 0)
-            elif event == 'progress' and not self.cancel_event.is_set():
+            elif event == 'progress' and not self.cancel_event.is_set() and not self.pause_requested:
                 percent, title, detail = value
                 self._animate_progress(percent)
                 self.status_label.setText(f'{percent:.0f}% · {title[:110]}')
@@ -805,7 +866,21 @@ class DescargadorApp(QMainWindow):
             self._persist()
         except OSError:
             pass
+        if self._native_frame and self.isVisible() and not self._native_closing:
+            # Destroy the native surface while still visible. Qt's usual close hides it
+            # first, so Windhawk's DestroyWindow hook cannot recognize a visible app.
+            event.ignore()
+            self._native_closing = True
+            self.timer.stop()
+            QTimer.singleShot(0, self._finish_native_close)
+            return
         event.accept()
+
+    def _finish_native_close(self):
+        handle = self.windowHandle()
+        if handle is not None:
+            handle.destroy()
+        QApplication.instance().quit()
 
 
 def main():

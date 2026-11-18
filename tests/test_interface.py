@@ -206,6 +206,42 @@ class InterfaceTests(unittest.TestCase):
         window.close()
 
 
+    def test_pause_pending_acknowledgement_resume_and_cancel(self):
+        self.window._set_busy(True)
+        self.assertTrue(self.window.pause_button.isEnabled())
+        self.window._toggle_pause()
+        self.assertTrue(self.window.pause_control.paused)
+        self.assertEqual(self.window.pause_button.text(), 'Reanudar')
+        self.assertIn('solicitada', self.window.status_label.text())
+        self.window.events.put(('pause_state', True))
+        self.window._process_events()
+        self.assertTrue(self.window.is_paused)
+        self.assertEqual(self.window.status_label.text(), 'Descarga en pausa')
+        self.window.events.put(('progress', (80, 'stale', 'stale')))
+        self.window._process_events()
+        self.assertEqual(self.window.status_label.text(), 'Descarga en pausa')
+        self.window._toggle_pause()
+        self.assertFalse(self.window.pause_control.paused)
+        self.assertEqual(self.window.pause_button.text(), 'Pausar')
+        self.window._toggle_pause()
+        self.window._cancel()
+        self.assertFalse(self.window.pause_control.paused)
+        self.assertFalse(self.window.pause_button.isEnabled())
+        self.window._set_busy(False)
+        self.assertFalse(self.window.pause_button.isEnabled())
+
+    def test_native_close_defers_qt_hide_until_surface_destruction(self):
+        from PySide6.QtGui import QCloseEvent
+        event = QCloseEvent()
+        self.window._native_frame = True
+        with patch.object(self.window, '_persist'), patch.object(ui.QTimer, 'singleShot') as schedule:
+            self.window.closeEvent(event)
+        self.assertFalse(event.isAccepted())
+        self.assertTrue(self.window._native_closing)
+        schedule.assert_called_once_with(0, self.window._finish_native_close)
+        self.window._native_frame = False
+
+
 
 if __name__ == '__main__':
     unittest.main()
