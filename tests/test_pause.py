@@ -61,7 +61,7 @@ class PauseTests(unittest.TestCase):
                     pause.pause()
                 return {'id': url}
             downloader.extract_info.side_effect = extract
-            with patch.object(core, 'yt_dlp', fake):
+            with patch.object(core, 'yt_dlp', fake), patch.object(core, '_config_path', return_value=Path(directory) / 'internal' / 'config.json'):
                 worker = core.DownloadWorker(events, cancel, pause)
                 thread = threading.Thread(target=worker.run, args=(['first', 'second'], core.DownloadSettings(Path(directory))))
                 thread.start()

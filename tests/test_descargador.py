@@ -65,7 +65,11 @@ class DownloadTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
-        self.output = Path(self.temp.name)
+        self.output = Path(self.temp.name) / 'output'
+        self.output.mkdir()
+        patcher = patch.object(app, '_config_path', return_value=Path(self.temp.name) / 'internal' / 'config.json')
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def options(self, fmt='mp3', quality='192 kbps', **kwargs):
         return app._download_options(app.DownloadSettings(self.output, fmt, quality, **kwargs),
@@ -76,6 +80,27 @@ class DownloadTests(unittest.TestCase):
         self.assertEqual(len({o['download_archive'] for o in opts}), 3)
         self.assertEqual(len({o['outtmpl'] for o in opts}), 3)
         self.assertTrue(all(o['continuedl'] for o in opts))
+
+    def test_archive_moves_legacy_history_out_of_media_directory(self):
+        options = self.options()
+        target = Path(options['download_archive'])
+        self.assertNotIn(self.output, target.parents)
+        legacy = self.output / ('.youtube-archive-' + target.name)
+        legacy.write_text('youtube old\n', encoding='utf-8')
+        target.parent.mkdir(parents=True)
+        target.write_text('youtube new\n', encoding='utf-8')
+        app._prepare_archive(options, app.DownloadSettings(self.output))
+        self.assertEqual(set(target.read_text().splitlines()), {'youtube old', 'youtube new'})
+        self.assertFalse(legacy.exists())
+        self.assertEqual(list(self.output.iterdir()), [])
+        self.assertNotEqual(app._archive_path(self.output, 'mp3'), app._archive_path(self.output / 'other', 'mp3'))
+
+    def test_success_has_no_report_or_output_text_files(self):
+        messages, _ = self.run_fake(['https://youtu.be/good'], lambda *args, **kwargs: {'id': 'good'})
+        self.assertIsNone(messages[-1][1]['report'])
+        self.assertEqual(messages[-1][1]['failed'], [])
+        self.assertEqual(list(self.output.glob('*.txt')), [])
+        self.assertFalse(any('Reporte de enlaces fallidos:' in str(value) for _, value in messages))
 
     def test_formats_bitrates_containers(self):
         self.assertEqual(self.options(quality='320 kbps')['postprocessors'][0]['preferredquality'], '320')
@@ -193,7 +218,8 @@ class DownloadTests(unittest.TestCase):
         second = app._write_failure_report(self.output, [])
         self.assertNotEqual(first, second)
         self.assertEqual(first.read_text(), 'a\nb\n')
-        self.assertEqual(second.read_text(), '')
+        self.assertIsNone(second)
+        self.assertEqual(len(list(self.output.glob('*.txt'))), 1)
 
 
 if __name__ == '__main__':

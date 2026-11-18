@@ -11,7 +11,7 @@ from pathlib import Path
 from PySide6.QtCore import QEvent, Qt, QTimer, QUrl, Property, QPropertyAnimation, QEasingCurve
 from PySide6.QtGui import QColor, QDesktopServices, QIcon, QKeySequence, QPainter, QShortcut
 from PySide6.QtWidgets import (
-    QApplication, QCheckBox, QComboBox, QFileDialog, QGraphicsOpacityEffect,
+    QApplication, QCheckBox, QComboBox, QFileDialog,
     QFrame, QGridLayout, QHBoxLayout, QHeaderView, QLabel, QLineEdit,
     QMainWindow, QMessageBox, QPlainTextEdit, QProgressBar, QPushButton,
     QRadioButton, QScrollArea, QSizeGrip, QTableWidget, QTableWidgetItem,
@@ -72,6 +72,14 @@ def label(text='', name=None):
     if name:
         widget.setObjectName(name)
     return widget
+
+
+class AcrylicScrollArea(QScrollArea):
+    def scrollContentsBy(self, dx, dy):
+        super().scrollContentsBy(dx, dy)
+        # Transparent children must repaint instead of reusing old scroll pixels.
+        self.viewport().update()
+        self.window().update()
 
 
 class TitleBar(QWidget):
@@ -142,8 +150,6 @@ class DescargadorApp(QMainWindow):
         self.last_error = None
         self.seen_error_codes = set()
         self._cards = []
-        self._intro_animations = []
-        self._intro_started = False
         self._window_active = False
         self._background_color = QColor('#454648')
         self._focus_animation = QPropertyAnimation(self, b'backdropColor', self)
@@ -187,7 +193,7 @@ class DescargadorApp(QMainWindow):
         shell.setSpacing(0)
         self.titlebar = TitleBar(self)
         shell.addWidget(self.titlebar)
-        scroll = QScrollArea()
+        scroll = AcrylicScrollArea()
         scroll.setWidgetResizable(True)
         scroll.viewport().setAutoFillBackground(False)
         scroll.viewport().setStyleSheet('background: transparent;')
@@ -331,12 +337,7 @@ class DescargadorApp(QMainWindow):
         self.progress_animation = QPropertyAnimation(self.progress, b'value', self)
         self.progress_animation.setDuration(200)
         self.progress_animation.setEasingCurve(QEasingCurve.Type.OutCubic)
-        progress_row = QHBoxLayout()
-        progress_row.addWidget(self.progress, 1)
-        self.pause_button = self._button('Pausar', self._toggle_pause)
-        self.pause_button.setEnabled(False)
-        progress_row.addWidget(self.pause_button)
-        footer.addLayout(progress_row)
+        footer.addWidget(self.progress)
         self.status_label = label('Todo listo. Añade tus enlaces para empezar.')
         self.status_label.setWordWrap(True)
         footer.addWidget(self.status_label)
@@ -355,9 +356,12 @@ class DescargadorApp(QMainWindow):
         self.cancel_button = self._button('Cancelar', self._cancel)
         self.cancel_button.setEnabled(False)
         buttons.addWidget(self.cancel_button)
-        self.download_button = self._button('Descargar', self._start_download, primary=True)
+        self.download_button = self._button('Descargar', self._primary_action, primary=True)
         buttons.addWidget(self.download_button)
         footer.addLayout(buttons)
+        self.report_button.hide()
+        self.retry_button.hide()
+        self.cancel_button.hide()
         self.grip = QSizeGrip(self.surface)
         self.grip.setFixedSize(14, 14)
         shell.addWidget(self.grip, 0, Qt.AlignmentFlag.AlignRight)
@@ -421,19 +425,11 @@ class DescargadorApp(QMainWindow):
         if not self.backdrop_initialized:
             self.backdrop_initialized = True
             QTimer.singleShot(0, self._initialize_backdrop)
-        if not self._intro_started:
-            self._intro_started = True
-            for index, card in enumerate(self._cards):
-                effect = QGraphicsOpacityEffect(card)
-                card.setGraphicsEffect(effect)
-                effect.setOpacity(0)
-                animation = QPropertyAnimation(effect, b'opacity', self)
-                animation.setDuration(300)
-                animation.setStartValue(0.0)
-                animation.setEndValue(1.0)
-                animation.setEasingCurve(QEasingCurve.Type.OutCubic)
-                self._intro_animations.append(animation)
-                QTimer.singleShot(50 + index * 55, animation.start)
+        self.update()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.update()
 
     def _initialize_backdrop(self):
         self.acrylic_enabled, self.backdrop_message = enable_acrylic(int(self.winId()))
@@ -560,8 +556,12 @@ class DescargadorApp(QMainWindow):
         enabled = not self.is_downloading and not self.session_checking
         self.session_button.setEnabled(enabled)
         self.session_finish_button.setEnabled(enabled)
-        self.download_button.setEnabled(enabled)
+        self.download_button.setEnabled((self.is_downloading and not self.cancel_event.is_set()) or enabled)
         self.retry_button.setEnabled(enabled and bool(self.failed_urls))
+        self.retry_button.setVisible(not self.is_downloading and bool(self.failed_urls))
+        has_report = bool(self.failed_urls and self.report_path)
+        self.report_button.setVisible(not self.is_downloading and has_report)
+        self.report_button.setEnabled(enabled and has_report)
         self.shortcut.setEnabled(enabled)
 
     def _choose_folder(self):
@@ -664,16 +664,21 @@ class DescargadorApp(QMainWindow):
         self.is_downloading = busy
         self.pause_control.resume()
         self.pause_requested = self.is_paused = False
-        self.pause_button.setText('Pausar')
-        self.pause_button.setEnabled(busy)
         for widget in self.controls:
             widget.setEnabled(not busy)
         self.url_text.setReadOnly(busy)
         self.report_button.setEnabled(not busy and bool(self.report_path))
         self.cancel_button.setEnabled(busy)
-        self.download_button.setText('Descargando…' if busy else 'Descargar')
+        self.cancel_button.setVisible(busy)
+        self.download_button.setText('Pausar' if busy else 'Descargar')
         self.notice.set_busy(busy)
         self._refresh_session_controls()
+
+    def _primary_action(self):
+        if self.is_downloading:
+            self._toggle_pause()
+        else:
+            self._start_download()
 
     def _toggle_pause(self):
         if not self.is_downloading or self.cancel_event.is_set():
@@ -681,13 +686,13 @@ class DescargadorApp(QMainWindow):
         if self.pause_requested:
             self.pause_control.resume()
             self.pause_requested = self.is_paused = False
-            self.pause_button.setText('Pausar')
+            self.download_button.setText('Pausar')
             self.status_label.setText('Reanudando descarga…')
             self._notify('Reanudando descarga', 'Continuaremos desde el punto donde se pausó.', 'loading')
         else:
             self.pause_requested = True
             self.pause_control.pause()
-            self.pause_button.setText('Reanudar')
+            self.download_button.setText('Reanudar')
             self.status_label.setText('Pausa solicitada · esperando a la operación actual…')
             self._notify('Pausando la descarga',
                 'Se pausará en el siguiente bloque. Si hay una conversión o consulta en curso, esperamos a que termine.', 'loading')
@@ -696,7 +701,7 @@ class DescargadorApp(QMainWindow):
         if self.is_downloading:
             self.cancel_event.set()
             self.pause_control.resume()
-            self.pause_button.setEnabled(False)
+            self.download_button.setEnabled(False)
             self.cancel_button.setEnabled(False)
             self.status_label.setText('Cancelando… esperando a que termine la operación actual.')
 
@@ -836,7 +841,8 @@ class DescargadorApp(QMainWindow):
                         self.progress.setValue(1000)
                 self.status_label.setText(message)
                 self.batch_label.setText('CANCELADO' if value['cancelled'] else 'FINALIZADO')
-                self.detail_label.setText('TXT de fallos: ' + self.report_path if self.report_path else 'No se pudo guardar el TXT. Revisa el registro.')
+                self.detail_label.setText('TXT de fallos: ' + self.report_path if self.report_path else
+                    ('No se pudo guardar el TXT. Revisa el registro.' if self.failed_urls else 'No hay enlaces fallidos en este lote.'))
                 self._log(message)
                 if value['cancelled']:
                     self._notify('Descarga cancelada', 'Tus archivos completados y los parciales se conservan.', 'info')
@@ -845,7 +851,7 @@ class DescargadorApp(QMainWindow):
                         self.session_button.setText('Volver a iniciar sesión en YouTube')
                     issue = self.last_error or describe_error('download')
                     title = issue.title if not value['completed'] else 'Algunos videos no pudieron descargarse'
-                    self._notify(title, issue.message + ' Los enlaces fallidos están en el TXT.',
+                    self._notify(title, issue.message + (' Los enlaces fallidos están en el TXT.' if self.report_path else ' Puedes reintentar los enlaces fallidos.'),
                                  'warning' if value['completed'] else 'error',
                                  'Ver TXT de fallos' if self.report_path else '', self._open_report if self.report_path else None)
                 else:

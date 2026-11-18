@@ -1,4 +1,4 @@
-# Descargador de YouTube · v0.5.0
+# Descargador de YouTube · v0.5.1
 
 Aplicación de escritorio en Python con Qt (PySide6), yt-dlp, FFmpeg y Deno.
 El logo aparece únicamente en el icono del ejecutable y en la barra de título,
@@ -26,8 +26,9 @@ instalado en el PATH si cumple los requisitos de yt-dlp.
 
 ## Pausar y reanudar
 
-**Pausar** está junto a la barra de progreso. Cambia a **Reanudar** cuando solicitas
-la pausa. La pausa se aplica en el siguiente bloque procesado por yt-dlp, antes
+**Descargar** cambia a **Pausar** al iniciar el lote y a **Reanudar** cuando
+solicitas la pausa. **Cancelar** aparece únicamente mientras hay una descarga activa.
+**Reintentar fallidos** y **Ver TXT de fallos** aparecen al terminar si hay errores. La pausa se aplica en el siguiente bloque procesado por yt-dlp, antes
 del siguiente video o entre etapas de procesamiento. Los archivos parciales se
 conservan y el lote continúa al reanudar.
 
@@ -158,9 +159,9 @@ El registro conserva el detalle técnico; los avisos explican cómo continuar.
   privacidad, conexión o conversión, el programa pasa al siguiente.
 - Se muestra el estado de cada video, progreso del archivo actual, velocidad,
   tiempo restante y detalles de errores.
-- Al finalizar cada lote se crea `fallidos_AAAAMMDD_HHMMSS_microsegundos.txt`
+- Al finalizar un lote con errores se crea `fallidos_AAAAMMDD_HHMMSS_microsegundos.txt`
   en la carpeta de destino. Contiene exclusivamente los enlaces fallidos,
-  sin duplicados y uno por línea. Si no hubo fallos, el TXT está vacío.
+  sin duplicados y uno por línea. Si no hubo fallos, no se genera ningún TXT.
 - En playlists se registran los enlaces de los videos concretos, incluidos
   privados o eliminados si YouTube conserva su ID en la lista. Si YouTube
   impide leer toda la playlist o no devuelve el ID de una entrada, se registra
@@ -177,8 +178,8 @@ La carpeta, el formato, la calidad y las opciones de descarga se recuerdan en
 `%APPDATA%\DescargadorYouTube\config.json`. La actividad es de la sesión actual.
 
 Los nombres incluyen título, ID y perfil. Cada formato/calidad tiene su
-propio archivo `.youtube-archive-*.txt`, para poder guardar el mismo video
-en distintos formatos. Si borraste un archivo y quieres recuperarlo,
+propio historial interno en `%APPDATA%\DescargadorYouTube\archives`, separado
+por carpeta de destino, para poder guardar el mismo video en distintos formatos. Si borraste un archivo y quieres recuperarlo,
 desactiva **Omitir descargas completadas**. Los archivos existentes no se
 sobrescriben. Los registros del programa anterior se conservan.
 
@@ -220,3 +221,12 @@ recursos y comprueba los códigos de salida sin borrar las carpetas existentes.
 La firma del autor se conserva: **by kenner manuel varilla fuentes**.
 Descarga contenido que tengas derecho a guardar. Al distribuir el programa,
 conserva las licencias de Qt/PySide6, yt-dlp, FFmpeg, Deno y sus componentes.
+
+## Archivos de control
+
+Un lote sin errores no genera TXT. Cuando hay fallos, `fallidos_FECHA.txt` contiene
+únicamente los enlaces que fallaron. El historial para omitir descargas completadas
+se guarda en `%APPDATA%\DescargadorYouTube\archives`, separado por carpeta, formato
+y calidad. Los antiguos `.youtube-archive-*.txt` de la carpeta elegida se trasladan
+allí al iniciar un lote con la opción de omitir descargas completadas activada.
+Los informes de fallos anteriores se conservan.

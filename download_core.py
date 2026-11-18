@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import queue
@@ -198,7 +199,7 @@ def _download_options(settings, progress_hook, postprocessor_hook, logger, cance
     elif settings.cookie_browser:
         options['cookiesfrombrowser'] = (settings.cookie_browser,)
     if settings.skip_completed:
-        options['download_archive'] = str(settings.output / f'.youtube-archive-{profile}.txt')
+        options['download_archive'] = str(_archive_path(settings.output, profile))
     location = _ffmpeg_location()
     if location:
         options['ffmpeg_location'] = location
@@ -239,7 +240,31 @@ def _entry_url(entry):
     return None
 
 
-def _write_failure_report(output: Path, failed: list[str]) -> Path:
+def _archive_path(output: Path, profile: str) -> Path:
+    location = os.path.normcase(str(output.resolve()))
+    key = hashlib.sha256(location.encode('utf-8')).hexdigest()[:24]
+    return _config_path().parent / 'archives' / key / f'{profile}.txt'
+
+
+def _prepare_archive(options, settings):
+    if 'download_archive' not in options:
+        return
+    target = Path(options['download_archive'])
+    target.parent.mkdir(parents=True, exist_ok=True)
+    legacy = settings.output / ('.youtube-archive-' + target.name)
+    if legacy.is_file():
+        # Merge and relocate this app's previous internal history without losing entries.
+        entries = set(target.read_text(encoding='utf-8').splitlines()) if target.exists() else set()
+        entries.update(legacy.read_text(encoding='utf-8').splitlines())
+        temporary = target.with_suffix('.tmp')
+        temporary.write_text(''.join(line + '\n' for line in sorted(entries)), encoding='utf-8')
+        temporary.replace(target)
+        legacy.unlink()
+
+
+def _write_failure_report(output: Path, failed: list[str]) -> Path | None:
+    if not failed:
+        return None
     output.mkdir(parents=True, exist_ok=True)
     report = output / f"fallidos_{datetime.now():%Y%m%d_%H%M%S_%f}.txt"
     with report.open('x', encoding='utf-8') as handle:
@@ -342,6 +367,7 @@ class DownloadWorker:
                     shutil.copyfile(settings.cookie_file, cookie_copy)
                     settings = replace(settings, cookie_file=str(cookie_copy))
                 options = _download_options(settings, self.progress, self.postprocess, self, self.cancel, self.pause_control)
+                _prepare_archive(options, settings)
                 with yt_dlp.YoutubeDL(options) as downloader:
                     for submitted in urls:
                         self._check_cancel()
@@ -404,7 +430,8 @@ class DownloadWorker:
             failed = list(dict.fromkeys(failed))
             try:
                 report = _write_failure_report(settings.output, failed)
-                self.events.put(('log', f'Reporte de enlaces fallidos: {report}'))
+                if report:
+                    self.events.put(('log', f'Reporte de enlaces fallidos: {report}'))
             except OSError as error:
                 self.events.put(('log', f'No se pudo guardar el TXT de fallos: {error}'))
             self.events.put(('finished', {'completed': completed, 'failed': failed,

@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
-from PySide6.QtCore import QEvent
+from PySide6.QtCore import QEvent, QCoreApplication
 from PySide6.QtWidgets import QApplication, QLabel
 import descargador as ui
 
@@ -23,7 +23,12 @@ class InterfaceTests(unittest.TestCase):
         self.window.backdrop_initialized = True
         self.window.show()
         self.application.processEvents()
-        self.addCleanup(self.window.close)
+
+    def tearDown(self):
+        self.window.close()
+        self.window.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+        self.application.processEvents()
 
     def test_logo_only_in_titlebar(self):
         self.assertFalse(self.window.windowIcon().isNull())
@@ -84,11 +89,12 @@ class InterfaceTests(unittest.TestCase):
 
     def test_all_download_controls_are_locked_but_cancel_is_available(self):
         self.window.report_path = 'previous.txt'
+        self.window.failed_urls = ['https://youtu.be/b']
         self.window._set_busy(True)
         self.assertTrue(all(not widget.isEnabled() for widget in self.window.controls))
         self.assertFalse(self.window.report_button.isEnabled())
         self.assertFalse(self.window.retry_button.isEnabled())
-        self.assertFalse(self.window.download_button.isEnabled())
+        self.assertTrue(self.window.download_button.isEnabled())
         self.assertFalse(self.window.shortcut.isEnabled())
         self.assertTrue(self.window.cancel_button.isEnabled())
         self.window._set_busy(False)
@@ -191,6 +197,7 @@ class InterfaceTests(unittest.TestCase):
             window._center_on_start()
             self.assertEqual(window.pos(), moved)
         window.close()
+        window.deleteLater()
 
     def test_window_fits_small_monitor_before_centering(self):
         from PySide6.QtCore import QRect
@@ -204,14 +211,15 @@ class InterfaceTests(unittest.TestCase):
             self.assertEqual(window.size(), area.size())
             self.assertLessEqual((window.frameGeometry().center() - area.center()).manhattanLength(), 1)
         window.close()
+        window.deleteLater()
 
 
     def test_pause_pending_acknowledgement_resume_and_cancel(self):
         self.window._set_busy(True)
-        self.assertTrue(self.window.pause_button.isEnabled())
+        self.assertTrue(self.window.download_button.isEnabled())
         self.window._toggle_pause()
         self.assertTrue(self.window.pause_control.paused)
-        self.assertEqual(self.window.pause_button.text(), 'Reanudar')
+        self.assertEqual(self.window.download_button.text(), 'Reanudar')
         self.assertIn('solicitada', self.window.status_label.text())
         self.window.events.put(('pause_state', True))
         self.window._process_events()
@@ -222,13 +230,53 @@ class InterfaceTests(unittest.TestCase):
         self.assertEqual(self.window.status_label.text(), 'Descarga en pausa')
         self.window._toggle_pause()
         self.assertFalse(self.window.pause_control.paused)
-        self.assertEqual(self.window.pause_button.text(), 'Pausar')
+        self.assertEqual(self.window.download_button.text(), 'Pausar')
         self.window._toggle_pause()
         self.window._cancel()
         self.assertFalse(self.window.pause_control.paused)
-        self.assertFalse(self.window.pause_button.isEnabled())
+        self.assertFalse(self.window.download_button.isEnabled())
         self.window._set_busy(False)
-        self.assertFalse(self.window.pause_button.isEnabled())
+        self.assertTrue(self.window.download_button.isEnabled())
+        self.assertEqual(self.window.download_button.text(), 'Descargar')
+
+    def test_actions_follow_batch_state_and_primary_click_pauses(self):
+        for button in (self.window.report_button, self.window.retry_button, self.window.cancel_button):
+            self.assertTrue(button.isHidden())
+        self.assertEqual(self.window.download_button.text(), 'Descargar')
+        self.window._set_busy(True)
+        self.assertTrue(self.window.cancel_button.isVisible())
+        self.assertEqual(self.window.download_button.text(), 'Pausar')
+        self.window.download_button.click()
+        self.assertTrue(self.window.pause_control.paused)
+        self.assertEqual(self.window.download_button.text(), 'Reanudar')
+        self.window.download_button.click()
+        self.assertFalse(self.window.pause_control.paused)
+        self.window.events.put(('finished', {'failed': [], 'completed': 1, 'cancelled': False, 'report': None}))
+        self.window._process_events()
+        for button in (self.window.report_button, self.window.retry_button, self.window.cancel_button):
+            self.assertTrue(button.isHidden())
+        self.assertEqual(self.window.download_button.text(), 'Descargar')
+        self.assertNotIn('No se pudo', self.window.detail_label.text())
+        self.window.events.put(('finished', {'failed': ['https://youtu.be/b'], 'completed': 1,
+                                           'cancelled': False, 'report': 'failure.txt'}))
+        self.window._process_events()
+        self.assertTrue(self.window.report_button.isVisible())
+        self.assertTrue(self.window.retry_button.isVisible())
+        self.assertTrue(self.window.cancel_button.isHidden())
+        self.window._set_busy(True)
+        self.assertTrue(self.window.report_button.isHidden())
+        self.assertTrue(self.window.retry_button.isHidden())
+        self.window._set_busy(False)
+
+    def test_cards_have_no_cached_opacity_effect_after_resize_and_scroll(self):
+        scroll = self.window.findChild(ui.AcrylicScrollArea)
+        for width, height in ((860, 700), (1080, 850), (1400, 1000), (860, 700)):
+            self.window.resize(width, height)
+            self.application.processEvents()
+            scroll.verticalScrollBar().setValue(scroll.verticalScrollBar().maximum())
+            self.application.processEvents()
+            self.assertTrue(all(card.graphicsEffect() is None for card in self.window._cards))
+            self.assertFalse(self.window.grab().isNull())
 
     def test_native_close_defers_qt_hide_until_surface_destruction(self):
         from PySide6.QtGui import QCloseEvent

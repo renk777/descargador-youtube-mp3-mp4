@@ -8,6 +8,7 @@ import tempfile
 import threading
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import download_core as app
 
@@ -27,6 +28,9 @@ class LocalConversionTests(unittest.TestCase):
             self.skipTest('Requiere FFprobe para comprobar los archivos finales')
         with tempfile.TemporaryDirectory() as temp:
             base = Path(temp)
+            config_patch = patch.object(app, '_config_path', return_value=base / 'internal' / 'config.json')
+            config_patch.start()
+            self.addCleanup(config_patch.stop)
             subprocess.run([str(ffmpeg), '-hide_banner', '-loglevel', 'error', '-y',
                             '-f', 'lavfi', '-i', 'color=c=purple:s=160x120:r=10',
                             '-f', 'lavfi', '-i', 'sine=frequency=440:sample_rate=44100',
@@ -59,7 +63,9 @@ class LocalConversionTests(unittest.TestCase):
                         self.assertEqual(streams[0]['codec_name'], 'mp3')
                     else:
                         self.assertTrue(any(s['codec_type'] == 'video' for s in streams))
-                self.assertEqual(len(list((base / 'output').glob('.youtube-archive-*.txt'))), 2)
+                self.assertEqual(len(list((base / 'internal' / 'archives').rglob('*.txt'))), 2)
+                self.assertEqual(list((base / 'output').glob('*.txt')), [])
+                self.assertIsNone(messages[-1][1]['report'])
                 # A real HTTP failure must not stop a later valid video.
                 events = queue.Queue()
                 bad = f'http://127.0.0.1:{server.server_port}/missing.mp4'
@@ -89,6 +95,7 @@ class LocalConversionTests(unittest.TestCase):
                             'formats': [{'format_id': 'source', 'url': f'http://127.0.0.1:{server.server_port}/{filename}',
                                          'ext': ext, 'vcodec': 'none' if is_audio_webm else ('vp9' if ext == 'webm' else 'mpeg4'),
                                          'acodec': 'opus' if ext == 'webm' else 'aac', 'height': None if is_audio_webm else 120}]}
+                    app._prepare_archive(opts, settings_all)
                     with app.yt_dlp.YoutubeDL(opts) as real_downloader:
                         real_downloader.process_ie_result(info, download=True)
                     expected_ext = 'webm' if is_audio_webm else fmt

@@ -22,6 +22,10 @@ def configure_native_window(hwnd):
     dwm.DwmSetWindowAttribute.restype = ctypes.c_long
     enabled = wintypes.BOOL(False)
     dwm.DwmSetWindowAttribute(hwnd, 3, ctypes.byref(enabled), ctypes.sizeof(enabled))
+    # Flush the frame metrics cached before changing the styles.
+    user.SetWindowPos.argtypes = [wintypes.HWND, wintypes.HWND, ctypes.c_int, ctypes.c_int,
+                                  ctypes.c_int, ctypes.c_int, wintypes.UINT]
+    user.SetWindowPos(hwnd, None, 0, 0, 0, 0, 0x0020 | 0x0001 | 0x0002 | 0x0004 | 0x0010)
     return True
 
 
@@ -38,7 +42,11 @@ def handle_native_frame(message, closing=False):
         # Qt's actual DestroyWindow call so animation hooks can take a snapshot.
         position.flags &= ~0x0080  # SWP_HIDEWINDOW
         return None
-    if msg.message == 0x0083 and msg.wParam:  # WM_NCCALCSIZE
+    if msg.message == 0x0085:  # WM_NCPAINT: Qt paints the complete caption.
+        return True, 0
+    if msg.message == 0x0086:  # WM_NCACTIVATE: no second caption on activation.
+        return True, 1
+    if msg.message == 0x0083:  # WM_NCCALCSIZE
         # The first member of NCCALCSIZE_PARAMS is the proposed window RECT.
         rect = wintypes.RECT.from_address(msg.lParam)
         user = ctypes.WinDLL('user32')
